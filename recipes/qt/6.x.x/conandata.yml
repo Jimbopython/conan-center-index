@@ -120,3 +120,6 @@ patches:
     - patch_file: "patches/d13958d_.diff"
       base_path: "qtbase"
       patch_description: "Fix PCRE2 detection"
+    - patch_file: "patches/8d6150d.patch"
+      base_path: "qttools"
+      patch_description: "Fix Linguist compilation with newer llvm installation"

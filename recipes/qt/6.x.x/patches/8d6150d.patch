@@ -1,0 +1,193 @@
+diff --git a/src/linguist/lupdate/CMakeLists.txt b/src/linguist/lupdate/CMakeLists.txt
+index f6b225f56..d4739892e 100644
+--- a/src/linguist/lupdate/CMakeLists.txt
++++ b/src/linguist/lupdate/CMakeLists.txt
+@@ -50,6 +50,9 @@ qt_internal_add_tool(${target_name}
+         Qt::CorePrivate
+         Qt::Tools
+ )
++if (UNIX)
++    target_compile_options(${target_name} PRIVATE -fno-rtti)
++endif()
+ 
+ #### Keys ignored in scope 1:.:.:lupdate.pro:<TRUE>:
+ # QMAKE_TARGET_DESCRIPTION = "Qt Translation File Update Tool"
+diff --git a/src/linguist/lupdate/clangtoolastreader.cpp b/src/linguist/lupdate/clangtoolastreader.cpp
+index 8aac00ddf..bd99f6186 100644
+--- a/src/linguist/lupdate/clangtoolastreader.cpp
++++ b/src/linguist/lupdate/clangtoolastreader.cpp
+@@ -762,7 +762,8 @@ bool LupdateVisitor::VisitNamedDecl(clang::NamedDecl *namedDeclaration)
+     if (!fullLocation.isValid() || !fullLocation.getFileEntry())
+         return true;
+ 
+-    if (fullLocation.getFileEntry()->getName() != m_inputFile)
++    auto fileEntry = fullLocation.getFileEntryRef();
++    if (fileEntry && fileEntry->getName() != m_inputFile)
+         return true;
+ 
+     qCDebug(lcClang) << "NamedDecl Name:   " << namedDeclaration->getQualifiedNameAsString();
+diff --git a/src/linguist/lupdate/clangtoolastreader.h b/src/linguist/lupdate/clangtoolastreader.h
+index 3a5ea7dfb..9e1f0292e 100644
+--- a/src/linguist/lupdate/clangtoolastreader.h
++++ b/src/linguist/lupdate/clangtoolastreader.h
+@@ -29,6 +29,11 @@
+ #ifndef CLANG_TOOL_AST_READER_H
+ #define CLANG_TOOL_AST_READER_H
+ 
++#include <clang/AST/RecursiveASTVisitor.h>
++#include <clang/Frontend/CompilerInstance.h>
++#include <clang/Frontend/FrontendActions.h>
++#include <clang/Tooling/Tooling.h>
++
+ #include "cpp_clang.h"
+ #if defined(Q_CC_MSVC)
+ # pragma warning(push)
+@@ -38,11 +43,6 @@
+ # pragma warning(disable: 4624)
+ #endif
+ 
+-#include <clang/AST/RecursiveASTVisitor.h>
+-#include <clang/Frontend/CompilerInstance.h>
+-#include <clang/Frontend/FrontendActions.h>
+-#include <clang/Tooling/Tooling.h>
+-
+ #if defined(Q_CC_MSVC)
+ # pragma warning(pop)
+ #endif
+@@ -61,7 +61,7 @@ public:
+         : m_context(context)
+         , m_stores(stores)
+     {
+-        m_inputFile = m_context->getSourceManager().getFileEntryForID(
++        m_inputFile = m_context->getSourceManager().getFileEntryRefForID(
+             m_context->getSourceManager().getMainFileID())->getName();
+     }
+ 
+diff --git a/src/linguist/lupdate/cpp_clang.cpp b/src/linguist/lupdate/cpp_clang.cpp
+index c0ce164fb..34bfdb418 100644
+--- a/src/linguist/lupdate/cpp_clang.cpp
++++ b/src/linguist/lupdate/cpp_clang.cpp
+@@ -26,8 +26,10 @@
+ **
+ ****************************************************************************/
+ 
+-#include "cpp_clang.h"
++#include <clang/Tooling/CompilationDatabase.h>
+ #include "clangtoolastreader.h"
++
++#include "cpp_clang.h"
+ #include "lupdatepreprocessoraction.h"
+ #include "synchronized.h"
+ #include "translator.h"
+@@ -42,8 +44,6 @@
+ #include <QStandardPaths>
+ #include <QtTools/private/qttools-config_p.h>
+ 
+-#include <clang/Tooling/CompilationDatabase.h>
+-
+ #include <algorithm>
+ #include <limits>
+ #include <thread>
+@@ -177,7 +177,7 @@ clang::tooling::ArgumentsAdjuster getClangArgumentAdjuster()
+         for (size_t i = 0, e = args.size(); i < e; ++i) {
+             llvm::StringRef arg = args[i];
+             // FIXME: Remove options that generate output.
+-            if (!arg.startswith("-fcolor-diagnostics") && !arg.startswith("-fdiagnostics-color"))
++            if (!arg.starts_with("-fcolor-diagnostics") && !arg.starts_with("-fdiagnostics-color"))
+                 adjustedArgs.push_back(args[i]);
+         }
+         adjustedArgs.push_back("-fparse-all-comments");
+diff --git a/src/linguist/lupdate/cpp_clang.h b/src/linguist/lupdate/cpp_clang.h
+index 0523222cc..e3528c7b4 100644
+--- a/src/linguist/lupdate/cpp_clang.h
++++ b/src/linguist/lupdate/cpp_clang.h
+@@ -29,6 +29,11 @@
+ #ifndef CLANG_CPP_H
+ #define CLANG_CPP_H
+ 
++#include <llvm/ADT/StringRef.h>
++#include <clang/Basic/SourceLocation.h>
++#include <clang/Basic/SourceManager.h>
++#include <clang/Basic/FileManager.h>
++
+ #include "lupdate.h"
+ #include "synchronized.h"
+ 
+@@ -44,11 +49,6 @@
+ # pragma warning(disable: 4624)
+ #endif
+ 
+-#include <llvm/ADT/StringRef.h>
+-#include <clang/Basic/SourceLocation.h>
+-#include <clang/Basic/SourceManager.h>
+-#include <clang/Basic/FileManager.h>
+-
+ #if defined(Q_CC_MSVC)
+ # pragma warning(pop)
+ #endif
+@@ -197,7 +197,7 @@ struct TranslationRelatedStore
+     {
+         if (sourceLocation.isInvalid()) {
+             auto sourceFile = sourceManager.getFileManager()
+-                .getFile(lupdateLocationFile.toStdString());
++                .getFileRef(lupdateLocationFile.toStdString());
+ #if (LUPDATE_CLANG_VERSION >= LUPDATE_CLANG_VERSION_CHECK(10,0,0))
+             sourceLocation = sourceManager.translateFileLineCol(sourceFile.get(),
+                 lupdateLocationLine, locationCol);
+diff --git a/src/linguist/lupdate/lupdatepreprocessoraction.cpp b/src/linguist/lupdate/lupdatepreprocessoraction.cpp
+index 24bb212c5..91d2e6441 100644
+--- a/src/linguist/lupdate/lupdatepreprocessoraction.cpp
++++ b/src/linguist/lupdate/lupdatepreprocessoraction.cpp
+@@ -26,11 +26,11 @@
+ **
+ ****************************************************************************/
+ 
+-#include "lupdatepreprocessoraction.h"
+-
+ #include <clang/Lex/MacroArgs.h>
+ #include <clang/Basic/TokenKinds.h>
+ 
++#include "lupdatepreprocessoraction.h"
++
+ QT_BEGIN_NAMESPACE
+ 
+ void LupdatePPCallbacks::MacroExpands(const clang::Token &token,
+diff --git a/src/linguist/lupdate/lupdatepreprocessoraction.h b/src/linguist/lupdate/lupdatepreprocessoraction.h
+index 01caed52d..0691f96e1 100644
+--- a/src/linguist/lupdate/lupdatepreprocessoraction.h
++++ b/src/linguist/lupdate/lupdatepreprocessoraction.h
+@@ -29,6 +29,12 @@
+ #ifndef LUPDATEPREPROCESSORACTION_H
+ #define LUPDATEPREPROCESSORACTION_H
+ 
++#include <clang/Frontend/CompilerInstance.h>
++#include <clang/Frontend/FrontendActions.h>
++#include <clang/Tooling/Tooling.h>
++#include <clang/Lex/PPCallbacks.h>
++#include <clang/Lex/Preprocessor.h>
++
+ #include "cpp_clang.h"
+ #include "synchronized.h"
+ 
+@@ -40,12 +46,6 @@
+ # pragma warning(disable: 4624)
+ #endif
+ 
+-#include <clang/Frontend/CompilerInstance.h>
+-#include <clang/Frontend/FrontendActions.h>
+-#include <clang/Tooling/Tooling.h>
+-#include <clang/Lex/PPCallbacks.h>
+-#include <clang/Lex/Preprocessor.h>
+-
+ #if defined(Q_CC_MSVC)
+ # pragma warning(pop)
+ #endif
+@@ -62,7 +62,7 @@ public:
+         , m_stores(stores)
+     {
+         const auto &sm = m_preprocessor.getSourceManager();
+-        m_inputFile = sm.getFileEntryForID(sm.getMainFileID())->getName();
++        m_inputFile = sm.getFileEntryRefForID(sm.getMainFileID())->getName();
+     }
+ 
+     ~LupdatePPCallbacks() override
