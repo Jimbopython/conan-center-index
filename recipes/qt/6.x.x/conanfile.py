@@ -967,7 +967,7 @@ class QtConan(ConanFile):
             if Version(self.version) >= "6.3.0":
                 self.cpp_info.components["qtCore"].system_libs.append("authz")
         if is_msvc(self):
-            if Version(self.version) >= "6.3.0":
+            if Version(self.version) >= "6.2.4":
                 self.cpp_info.components["qtCore"].cxxflags.append("-permissive-")
             if Version(self.version) >= "6.2.0":
                 self.cpp_info.components["qtCore"].cxxflags.append("-Zc:__cplusplus")
